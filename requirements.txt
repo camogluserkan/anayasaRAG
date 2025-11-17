@@ -1,0 +1,21 @@
+# Core packages - minimal install for speed
+llama-index-core>=0.10.0
+llama-index-llms-llama-cpp>=0.1.0
+llama-index-embeddings-huggingface>=0.2.0
+llama-index-vector-stores-chroma>=0.1.0
+
+# Essential dependencies
+chromadb>=0.4.22
+sentence-transformers>=2.2.2
+pypdf>=4.0.0
+
+# For chunking
+langchain-text-splitters>=0.0.1
+
+# GGUF Model Support (install separately with CUDA)
+# llama-cpp-python
+
+# Optional: Evaluation (install later if needed)
+# ragas>=0.1.0
+# datasets>=2.16.0
+
