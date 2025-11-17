@@ -13,8 +13,8 @@ from pathlib import Path
 
 # Import local modules
 sys.path.append(str(Path(__file__).parent))
-from src.query_engine import LegalRAGEngine
-from config import check_data_exists, check_model_exists
+from src.query_engine_ollama import LegalRAGEngineOllama
+from config import check_data_exists
 
 
 def print_welcome():
@@ -61,22 +61,17 @@ def main():
         print("Please run 'python src/indexing.py' first.")
         return
     
-    if not check_model_exists():
-        print("❌ LLM model not found!")
-        print("Please run 'python download_model.py' first.")
-        return
-    
-    print("✓ All files ready\n")
+    print("✓ Data files ready")
+    print("Note: Make sure Ollama is running with the Llama 3.1 8B model!\n")
     
     # Start RAG Engine
     try:
-        print("[Starting System...]")
-        engine = LegalRAGEngine()
+        print("[Starting System with Ollama...]")
+        engine = LegalRAGEngineOllama()
         
         # First access for lazy loading
         _ = engine.collection
         _ = engine.embedding_model
-        _ = engine.llm
         
         print("\n✅ System ready! Waiting for your questions...\n")
         
@@ -122,24 +117,18 @@ def main():
             print("📚 SOURCE ARTICLES:")
             print(f"{'='*70}")
             
-            for i, chunk in enumerate(response['sources'], 1):
-                source = chunk['metadata'].get('source', 'Unknown')
-                article = chunk['metadata'].get('article_no', '')
-                page = chunk['metadata'].get('page', 'N/A')
+            for i, source in enumerate(response['sources'], 1):
+                article = source.get('article_no', '')
+                page = source.get('page', 'N/A')
                 
-                print(f"\n[{i}] {source}")
-                if article:
-                    print(f"    Article: {article}")
-                print(f"    Page: {page}")
+                print(f"\n[{i}] Article {article} (Page {page})")
                 
-                # Show first 200 characters
-                text_preview = chunk['text'][:200].replace('\n', ' ')
-                print(f"    Preview: {text_preview}...")
+                # Show preview
+                text_preview = source.get('text_preview', '')
+                if text_preview:
+                    print(f"    Preview: {text_preview}")
             
-            # Statistics
             print(f"\n{'─'*70}")
-            print(f"📊 Token usage: {response['prompt_tokens']} prompt + {response['completion_tokens']} completion")
-            print(f"{'─'*70}")
             
         except KeyboardInterrupt:
             print("\n\n👋 Program terminated. Goodbye!")
