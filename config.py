@@ -44,6 +44,11 @@ GGUF_MODEL_PATH = MODELS_DIR / GGUF_MODEL_FILENAME
 # Note: Mistral 7B supports Turkish and provides more reliable results
 # Qwen2.5-3B alternative: bartowski/Qwen2.5-3B-GGUF / Qwen2.5-3B-Q4_K_M.gguf
 
+# ==================== OLLAMA MODEL ====================
+# Alternative LLM backend using Ollama (faster, easier setup)
+OLLAMA_MODEL_NAME = "hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M"
+OLLAMA_BASE_URL = "http://localhost:11434"
+
 # ==================== LLM PARAMETERS ====================
 # GPU/CPU Hybrid Execution Parameters
 # Starting value for RTX 3050 (4GB VRAM)
