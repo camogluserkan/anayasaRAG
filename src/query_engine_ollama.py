@@ -234,11 +234,18 @@ Cevabını sadece verilen maddelerle sınırlı tut. Madde numaralarını belirt
         sources = []
         for chunk in chunks:
             metadata = chunk['metadata']
+            distance = chunk.get('distance', 0.5)  # Default distance if not present
+            # Convert distance to similarity score (0-1 range)
+            # ChromaDB uses cosine distance: 0 = identical, 2 = opposite
+            # Convert to similarity: similarity = 1 - (distance / 2)
+            similarity = max(0.0, min(1.0, 1.0 - (distance / 2.0)))
             sources.append({
                 'article_no': metadata.get('article_no', 'Unknown'),
                 'page': metadata.get('page', 'Unknown'),
                 'chunk_id': metadata.get('chunk_id', 'Unknown'),
-                'text_preview': chunk['text'][:200] + "..." if len(chunk['text']) > 200 else chunk['text']
+                'text_preview': chunk['text'][:200] + "..." if len(chunk['text']) > 200 else chunk['text'],
+                'distance': distance,
+                'similarity': similarity
             })
         
         return {

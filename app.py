@@ -1,7 +1,7 @@
 """
-Legal RAG System - Main Application
+Legal RAG System - Flask Web Application
 
-Interactive CLI interface for Q&A on the Turkish Constitution.
+Web interface for Q&A on the Turkish Constitution using RAG.
 """
 
 import os
@@ -10,135 +10,192 @@ os.environ['USE_TORCH'] = 'YES'
 
 import sys
 from pathlib import Path
+from flask import Flask, render_template, request, jsonify
+from flask_cors import CORS
 
 # Import local modules
 sys.path.append(str(Path(__file__).parent))
 from src.query_engine_ollama import LegalRAGEngineOllama
-from config import check_data_exists
+from config import (
+    check_data_exists,
+    EMBEDDING_MODEL_NAME,
+    OLLAMA_MODEL_NAME,
+    CHROMA_COLLECTION_NAME,
+    CHROMA_PERSIST_DIRECTORY,
+    LEGAL_DATA_DIR
+)
+
+# Initialize Flask app
+app = Flask(__name__, 
+            template_folder='frontend/templates',
+            static_folder='frontend/static')
+CORS(app)
+
+# Global RAG engine instance (lazy loaded)
+_rag_engine = None
 
 
-def print_welcome():
-    """Welcome message"""
-    print("\n" + "="*70)
-    print(" " * 15 + "LEGAL RAG SYSTEM")
-    print(" " * 10 + "Turkish Constitution Q&A System")
-    print("="*70)
-    print("\nWelcome! You can ask questions about the Turkish Constitution.")
-    print("\nCommands:")
-    print("  - Ask a question: Just type your question")
-    print("  - 'exit' or 'quit': Exit the program")
-    print("  - 'help': Show this message")
-    print("="*70 + "\n")
+def get_rag_engine():
+    """Get or initialize RAG engine (singleton pattern)"""
+    global _rag_engine
+    if _rag_engine is None:
+        try:
+            _rag_engine = LegalRAGEngineOllama()
+            # Pre-load models
+            _ = _rag_engine.collection
+            _ = _rag_engine.embedding_model
+        except Exception as e:
+            print(f"Error initializing RAG engine: {e}")
+            raise
+    return _rag_engine
 
 
-def print_help():
-    """Help message"""
-    print("\n" + "="*70)
-    print("HELP")
-    print("="*70)
-    print("\nExample Questions:")
-    print("  - Milletvekili seçilme yaşı kaçtır? (What is the MP election age?)")
-    print("  - Cumhurbaşkanı nasıl seçilir? (How is the president elected?)")
-    print("  - Türkiye Cumhuriyeti'nin başkenti neresidir? (What is Turkey's capital?)")
-    print("  - Anayasa'nın değiştirilemez maddeleri nelerdir? (What are immutable articles?)")
-    print("\nTips:")
-    print("  - Ask clear and specific questions")
-    print("  - System works only with Constitutional text")
-    print("  - Source articles are shown with each answer")
-    print("="*70 + "\n")
+@app.route('/')
+def index():
+    """Main page"""
+    return render_template('index.html')
 
 
-def main():
-    """Main application loop"""
-    
-    # Welcome message
-    print_welcome()
-    
-    # System check
-    print("[System Check]")
-    if not check_data_exists():
-        print("❌ Data files not found!")
-        print("Please run 'python src/indexing.py' first.")
-        return
-    
-    print("✓ Data files ready")
-    print("Note: Make sure Ollama is running with the Llama 3.1 8B model!\n")
-    
-    # Start RAG Engine
+@app.route('/health')
+def health():
+    """Health check endpoint"""
     try:
-        print("[Starting System with Ollama...]")
-        engine = LegalRAGEngineOllama()
+        rag_ready = check_data_exists()
+        if rag_ready:
+            # Try to access engine
+            try:
+                engine = get_rag_engine()
+                rag_ready = engine is not None
+            except:
+                rag_ready = False
         
-        # First access for lazy loading
-        _ = engine.collection
-        _ = engine.embedding_model
+        return jsonify({
+            'status': 'healthy',
+            'rag_ready': rag_ready
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'rag_ready': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/models', methods=['GET'])
+def get_models():
+    """Get model information"""
+    try:
+        return jsonify({
+            'embedding_model': {
+                'name': EMBEDDING_MODEL_NAME,
+                'display_name': 'TR-MTEB Fine-tuned',
+                'model_id': EMBEDDING_MODEL_NAME
+            },
+            'llm_model': {
+                'name': OLLAMA_MODEL_NAME,
+                'display_name': 'Meta-Llama-3.1-8B-Instruct',
+                'backend': 'Ollama',
+                'quantization': 'Q4_K_M'
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/pdfs', methods=['GET'])
+def get_pdfs():
+    """Get list of indexed PDFs and chunk count"""
+    try:
+        import chromadb
         
-        print("\n✅ System ready! Waiting for your questions...\n")
+        # Get PDF files
+        pdf_files = list(LEGAL_DATA_DIR.glob("*.pdf"))
+        pdf_names = [pdf.name for pdf in pdf_files]
+        
+        # Get chunk count from ChromaDB
+        total_chunks = 0
+        try:
+            client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIRECTORY)
+            collection = client.get_collection(name=CHROMA_COLLECTION_NAME)
+            total_chunks = collection.count()
+        except:
+            pass
+        
+        return jsonify({
+            'pdfs': pdf_names,
+            'total_chunks': total_chunks
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """Chat endpoint - process user query"""
+    try:
+        data = request.json
+        message = data.get('message', '').strip()
+        
+        if not message:
+            return jsonify({'error': 'Message is required'}), 400
+        
+        # Get RAG engine
+        engine = get_rag_engine()
+        
+        # Process query
+        response = engine.query(message)
+        
+        # Format response for frontend
+        sources = []
+        for source in response.get('sources', []):
+            # Use similarity if available, otherwise calculate from distance
+            similarity = source.get('similarity')
+            if similarity is None:
+                distance = source.get('distance', 0.5)
+                # Convert distance to similarity (ChromaDB cosine distance: 0=identical, 2=opposite)
+                similarity = max(0.0, min(1.0, 1.0 - (distance / 2.0)))
+            
+            sources.append({
+                'source_file': source.get('source', 'anayasa.pdf'),
+                'article': source.get('article_no', ''),
+                'page': source.get('page', ''),
+                'page_number': source.get('page', ''),
+                'preview': source.get('text_preview', ''),
+                'score': similarity,  # Already 0-1 range
+                'similarity_score': similarity
+            })
+        
+        # Calculate confidence (average similarity of top chunks, as percentage)
+        confidence = None
+        if sources:
+            avg_score = sum(s['score'] for s in sources) / len(sources)
+            confidence = int(avg_score * 100)  # Convert to percentage (0-100)
+        
+        return jsonify({
+            'response': response.get('answer', ''),
+            'answer': response.get('answer', ''),
+            'sources': sources,
+            'confidence': confidence,
+            'has_sources': len(sources) > 0,
+            'low_confidence': confidence is not None and confidence < 50,
+            'warning': 'Düşük güven skoru. Daha spesifik bir soru deneyebilirsiniz.' if (confidence is not None and confidence < 50) else None
+        })
         
     except Exception as e:
-        print(f"\n❌ System startup error: {e}")
         import traceback
         traceback.print_exc()
-        return
-    
-    # Main loop
-    while True:
-        try:
-            # Get question from user
-            question = input("\n💬 Question: ").strip()
-            
-            if not question:
-                continue
-            
-            # Check commands
-            if question.lower() in ['exit', 'quit', 'q']:
-                print("\n👋 Goodbye! Closing Legal RAG System...")
-                break
-            
-            if question.lower() in ['help', 'h']:
-                print_help()
-                continue
-            
-            # Process question
-            print(f"\n{'─'*70}")
-            print(f"🔍 Processing your query...")
-            print(f"{'─'*70}")
-            
-            response = engine.query(question)
-            
-            # Show answer
-            print(f"\n{'='*70}")
-            print("📝 ANSWER:")
-            print(f"{'='*70}")
-            print(f"\n{response['answer']}\n")
-            
-            # Show sources
-            print(f"{'='*70}")
-            print("📚 SOURCE ARTICLES:")
-            print(f"{'='*70}")
-            
-            for i, source in enumerate(response['sources'], 1):
-                article = source.get('article_no', '')
-                page = source.get('page', 'N/A')
-                
-                print(f"\n[{i}] Article {article} (Page {page})")
-                
-                # Show preview
-                text_preview = source.get('text_preview', '')
-                if text_preview:
-                    print(f"    Preview: {text_preview}")
-            
-            print(f"\n{'─'*70}")
-            
-        except KeyboardInterrupt:
-            print("\n\n👋 Program terminated. Goodbye!")
-            break
-            
-        except Exception as e:
-            print(f"\n❌ Error: {e}")
-            print("Please try again or ask a different question.\n")
-            continue
+        return jsonify({
+            'error': str(e),
+            'response': f'Hata: {str(e)}'
+        }), 500
 
 
 if __name__ == "__main__":
-    main()
+    # Check if data exists
+    if not check_data_exists():
+        print("⚠️  Warning: Vector database not found!")
+        print("Please run 'python src/indexing.py' first.")
+        print("Starting server anyway...")
+    
+    # Run Flask app
+    app.run(host='0.0.0.0', port=5000, debug=True)

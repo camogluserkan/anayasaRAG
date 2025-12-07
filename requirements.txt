@@ -10,6 +10,10 @@ sentence-transformers>=2.2.2
 pypdf>=4.0.0
 ollama>=0.6.0
 
+# Web framework
+flask>=2.3.0
+flask-cors>=4.0.0
+
 # For chunking
 langchain-text-splitters>=0.0.1
 

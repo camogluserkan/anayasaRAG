@@ -14,10 +14,6 @@ def check_data_exists() -> bool:
     return db_path.exists() and any(db_path.iterdir())
 
 
-def check_model_exists() -> bool:
-    """Check if GGUF model exists"""
-    return GGUF_MODEL_PATH.exists()
-
 # ==================== PROJECT PATHS ====================
 BASE_DIR = Path(__file__).parent.absolute()
 LEGAL_DATA_DIR = BASE_DIR / "legal_data"
@@ -37,16 +33,19 @@ EMBEDDING_MODEL_NAME = "trmteb/turkish-embedding-model-fine-tuned"
 # Model to download from Hugging Face
 # Qwen2.5-3B was tested but has issues with ChatML format (repeating outputs)
 # Mistral 7B Instruct v0.2 works more stable
-GGUF_MODEL_HF_REPO = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
-GGUF_MODEL_FILENAME = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
-GGUF_MODEL_PATH = MODELS_DIR / GGUF_MODEL_FILENAME
+# NOTE: Commented out because using Ollama model instead
+#GGUF_MODEL_HF_REPO = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
+#GGUF_MODEL_FILENAME = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+#GGUF_MODEL_PATH = MODELS_DIR / GGUF_MODEL_FILENAME
 
 # Note: Mistral 7B supports Turkish and provides more reliable results
 # Qwen2.5-3B alternative: bartowski/Qwen2.5-3B-GGUF / Qwen2.5-3B-Q4_K_M.gguf
 
 # ==================== OLLAMA MODEL ====================
 # Alternative LLM backend using Ollama (faster, easier setup)
-OLLAMA_MODEL_NAME = "hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M"
+# Model imported from: hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M
+# To create: ollama create Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M -f Modelfile
+OLLAMA_MODEL_NAME = "Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M"
 OLLAMA_BASE_URL = "http://localhost:11434"
 
 # ==================== LLM PARAMETERS ====================
@@ -151,13 +150,9 @@ def ensure_directories():
     print(f"✓ Directory structure ready: {BASE_DIR}")
 
 def check_model_exists():
-    """Check if GGUF model has been downloaded."""
-    if not GGUF_MODEL_PATH.exists():
-        print(f"⚠ Model not found: {GGUF_MODEL_PATH}")
-        print(f"Please download the model from: {GGUF_MODEL_HF_REPO}")
-        print(f"Filename: {GGUF_MODEL_FILENAME}")
-        return False
-    print(f"✓ Model found: {GGUF_MODEL_PATH}")
+    """Check if GGUF model has been downloaded (not used when using Ollama)."""
+    # When using Ollama, this check is not needed
+    print("✓ Using Ollama model (GGUF check skipped)")
     return True
 
 def check_data_exists():
