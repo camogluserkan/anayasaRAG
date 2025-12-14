@@ -39,8 +39,17 @@ Downloads Mistral-7B-Instruct GGUF model (4.4GB).
 
 ### 4. Run the Application
 
+**Web Interface (Recommended):**
 ```bash
 python app.py
+```
+
+Then open your browser and navigate to: `http://localhost:5000`
+
+**CLI Interface (Alternative):**
+If you prefer command-line interface, you can use the original CLI version by running:
+```bash
+python app_cli.py  # (if you keep the old CLI version)
 ```
 
 ## Usage

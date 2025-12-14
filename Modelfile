@@ -1,0 +1,2 @@
+FROM hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M
+
