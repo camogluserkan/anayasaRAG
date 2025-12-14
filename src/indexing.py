@@ -1,28 +1,27 @@
 """
 Vector Database Indexing Module
 
-This module indexes chunked legal texts into ChromaDB vector database.
+This module is responsible for the vectorization and storage of document chunks.
+It bridges the gap between raw text chunks and the retrieval system.
 
 Features:
-- CREATE mode: Create new database from scratch
-- UPDATE mode: Add new documents to existing database
-- Embedding computation (using TR-MTEB model)
-- Persistent storage (stored on disk)
+- Embedding Generation: Converts text to vector embeddings using HuggingFace models.
+- Persistence: Stores vectors and metadata in ChromaDB for fast retrieval.
+- Batch Processing: Handles large datasets efficiently.
 """
 
 import os
-# Disable TensorFlow (for Keras 3 incompatibility)
+# Suppress TensorFlow warnings (as we use PyTorch)
 os.environ['USE_TF'] = 'NO'
 os.environ['USE_TORCH'] = 'YES'
 
 import sys
-from pathlib import Path
-from typing import List, Optional
-import chromadb
-from chromadb.config import Settings
 import time
+import chromadb
+from pathlib import Path
+from typing import List, Optional, Any
 
-# Import config and chunking modules
+# Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
 from config import (
     CHROMA_PERSIST_DIRECTORY,
@@ -35,10 +34,8 @@ from src.chunking import LegalChunker, Document
 
 class VectorDBIndexer:
     """
-    Vector database indexing manager using ChromaDB.
-    
-    Loads embedding model, vectorizes chunks, and
-    saves them persistently to ChromaDB.
+    Manages the lifecycle of the Vector Database (ChromaDB).
+    Handles embedding computation and document insertion.
     """
     
     def __init__(
@@ -48,65 +45,69 @@ class VectorDBIndexer:
         embedding_model_name: str = EMBEDDING_MODEL_NAME
     ):
         """
+        Initialize the Indexer.
+        
         Args:
-            persist_directory: Directory where ChromaDB database will be saved
-            collection_name: Database collection name
-            embedding_model_name: Embedding model to use
+            persist_directory (str): Path to store the database files.
+            collection_name (str): Name of the ChromaDB collection.
+            embedding_model_name (str): HuggingFace model ID for embeddings.
         """
         self.persist_directory = Path(persist_directory)
         self.collection_name = collection_name
         self.embedding_model_name = embedding_model_name
         
-        # Initialize ChromaDB client
-        print(f"Initializing ChromaDB ({persist_directory})...")
+        print(f"Initializing ChromaDB Client at: {persist_directory}")
         self.client = chromadb.PersistentClient(path=str(self.persist_directory))
         
-        # Prepare embedding model (lazy loading)
+        # Lazy loading for the embedding model
         self._embedding_model = None
     
     @property
     def embedding_model(self):
-        """Load embedding model with lazy loading"""
+        """
+        Property to access the embedding model. Loads it on first access.
+        """
         if self._embedding_model is None:
             print(f"Loading embedding model: {self.embedding_model_name}")
-            print("(First load will download the model, may take some time...)")
+            print("(First time load might verify/download model files...)")
             
             from sentence_transformers import SentenceTransformer
             self._embedding_model = SentenceTransformer(self.embedding_model_name)
             
-            print("✓ Embedding model loaded")
+            print("✓ Embedding model loaded successfully.")
         
         return self._embedding_model
     
     def collection_exists(self) -> bool:
-        """Check if collection exists"""
+        """
+        Check if the target collection already exists in the DB.
+        """
         collections = self.client.list_collections()
         return any(col.name == self.collection_name for col in collections)
     
     def get_or_create_collection(self, overwrite: bool = False):
         """
-        Get or create collection.
+        Retrieve existing collection or create a new one.
         
         Args:
-            overwrite: If True, existing collection is deleted and recreated
+            overwrite (bool): If True, deletes existing collection before creating.
             
         Returns:
-            ChromaDB collection object
+            Collection: The ChromaDB collection object.
         """
         if overwrite and self.collection_exists():
-            print(f"⚠ Deleting existing collection: {self.collection_name}")
+            print(f"⚠ Overwrite mode: Deleting existing collection '{self.collection_name}'...")
             self.client.delete_collection(self.collection_name)
         
-        # Create or get collection
+        # Create or get collection with Cosine Similarity space
         collection = self.client.get_or_create_collection(
             name=self.collection_name,
-            metadata={"hnsw:space": "cosine"}  # Cosine similarity
+            metadata={"hnsw:space": "cosine"}
         )
         
-        # Show existing document count
         count = collection.count()
         if count > 0:
-            print(f"ℹ Existing collection: {count} documents present")
+            print(f"ℹ Collection loaded with {count} existing documents.")
         else:
             print(f"✓ New collection created: {self.collection_name}")
         
@@ -114,32 +115,36 @@ class VectorDBIndexer:
     
     def embed_texts(self, texts: List[str], batch_size: int = 32) -> List[List[float]]:
         """
-        Convert texts to vectors.
+        Compute embeddings for a list of texts using batch processing.
         
         Args:
-            texts: List of texts to vectorize
-            batch_size: Batch processing size
+            texts (List[str]): Input texts.
+            batch_size (int): Number of texts to process at once.
             
         Returns:
-            List of embedding vectors
+            List[List[float]]: List of embedding vectors.
         """
-        print(f"Computing embeddings ({len(texts)} chunks)...")
+        print(f"Computing embeddings for {len(texts)} chunks...")
         
-        # Compute embeddings with batch processing
         embeddings = []
-        for i in range(0, len(texts), batch_size):
+        total = len(texts)
+        
+        for i in range(0, total, batch_size):
             batch = texts[i:i + batch_size]
+            
+            # Encode batch
+            # show_progress_bar=True helps visualize progress for large datasets
             batch_embeddings = self.embedding_model.encode(
                 batch,
-                show_progress_bar=(i == 0),  # Show progress bar only for first batch
+                show_progress_bar=(i == 0), 
                 convert_to_numpy=True
             )
             embeddings.extend(batch_embeddings.tolist())
             
             if (i + batch_size) % 100 == 0:
-                print(f"  Processed: {i + batch_size}/{len(texts)}")
+                print(f"  Processed: {min(i + batch_size, total)}/{total}")
         
-        print(f"✓ {len(embeddings)} embeddings computed")
+        print(f"✓ Computed {len(embeddings)} vectors.")
         return embeddings
     
     def index_chunks(
@@ -149,125 +154,103 @@ class VectorDBIndexer:
         batch_size: int = 32
     ):
         """
-        Index chunks into vector database.
+        Main method to index document chunks into ChromaDB.
         
         Args:
-            chunks: List of chunks to index
-            overwrite: Delete existing database and create new one
-            batch_size: Batch processing size
+            chunks (List[Document]): Processed document chunks.
+            overwrite (bool): Whether to rebuild the index.
+            batch_size (int): Batch size for embedding and insertion.
         """
         start_time = time.time()
         
-        # Prepare collection
+        # 1. Prepare Collection
         collection = self.get_or_create_collection(overwrite=overwrite)
-        
-        # Get existing document count (for ID offset)
         existing_count = collection.count()
         
-        # Compute embeddings
+        # 2. Extract Texts
         texts = [chunk.page_content for chunk in chunks]
+        
+        # 3. Compute Embeddings
         embeddings = self.embed_texts(texts, batch_size=batch_size)
         
-        # Prepare metadata and IDs
+        # 4. Prepare Metadata and IDs
         metadatas = []
         ids = []
         
         for i, chunk in enumerate(chunks):
+            # Create unique ID for each chunk
             chunk_id = f"chunk_{existing_count + i}"
             ids.append(chunk_id)
             
-            # Convert metadata to strings (ChromaDB requirement)
-            # Note: Keep field name as "article_no" even though it was "madde_no" in Turkish
-            # This maintains consistency across the codebase
-            metadata = {
+            # Prepare metadata (must be primitives for ChromaDB)
+            meta = {
                 "source": str(chunk.metadata.get("source", "")),
                 "page": str(chunk.metadata.get("page", "")),
                 "article_no": str(chunk.metadata.get("article_no", "")),
-                "chunk_id": str(chunk.metadata.get("chunk_id", i))
+                "original_chunk_id": str(chunk.metadata.get("chunk_id", i))
             }
-            metadatas.append(metadata)
+            metadatas.append(meta)
         
-        # Load into ChromaDB
-        print(f"\nLoading into ChromaDB ({len(chunks)} chunks)...")
+        # 5. Insert into Database
+        print(f"\nInserting {len(chunks)} documents into ChromaDB...")
         
-        # Add in batches
         for i in range(0, len(chunks), batch_size):
-            batch_ids = ids[i:i + batch_size]
-            batch_texts = texts[i:i + batch_size]
-            batch_embeddings = embeddings[i:i + batch_size]
-            batch_metadatas = metadatas[i:i + batch_size]
-            
+            end_idx = i + batch_size
             collection.add(
-                ids=batch_ids,
-                documents=batch_texts,
-                embeddings=batch_embeddings,
-                metadatas=batch_metadatas
+                ids=ids[i:end_idx],
+                documents=texts[i:end_idx],
+                embeddings=embeddings[i:end_idx],
+                metadatas=metadatas[i:end_idx]
             )
             
-            if (i + batch_size) % 100 == 0:
-                print(f"  Loaded: {i + batch_size}/{len(chunks)}")
+            if end_idx % 100 == 0:
+                print(f"  Inserted: {min(end_idx, len(chunks))}/{len(chunks)}")
         
-        elapsed_time = time.time() - start_time
+        elapsed = time.time() - start_time
         
         print(f"\n{'='*70}")
-        print("✓ INDEXING COMPLETED")
+        print("INDEXING SUMMARY")
         print(f"{'='*70}")
-        print(f"Total Chunks: {len(chunks)}")
+        print(f"Total Chunks Indexed: {len(chunks)}")
         print(f"Database Path: {self.persist_directory}")
-        print(f"Collection Name: {self.collection_name}")
-        print(f"Total Time: {elapsed_time:.2f} seconds")
+        print(f"Collection: {self.collection_name}")
+        print(f"Time Taken: {elapsed:.2f} seconds")
         print(f"{'='*70}\n")
 
 
 def main():
     """
-    Main indexing process - CREATE mode
+    Main entry point for indexing script.
     """
     print("="*70)
-    print("LEGAL TEXT VECTORIZATION AND INDEXING")
+    print("RAG INDEXING PIPELINE")
     print("="*70)
     
-    # 1. Create chunks using chunking module
-    print("\n[STEP 1/3] Loading and chunking documents...")
+    # Step 1: Chunking
+    print("\n[STEP 1/3] Loading and Chunking Documents...")
     chunker = LegalChunker()
-    
     try:
-        documents = chunker.load_documents_from_directory(LEGAL_DATA_DIR)
-        chunks = chunker.chunk_documents(documents)
-        
-        print(f"\n✓ {len(chunks)} chunks ready")
-        
+        docs = chunker.load_documents_from_directory(LEGAL_DATA_DIR)
+        chunks = chunker.chunk_documents(docs)
+        print(f"✓ {len(chunks)} chunks prepared.")
     except Exception as e:
-        print(f"\n❌ Chunking error: {e}")
+        print(f"❌ Error during chunking: {e}")
         return
     
-    # 2. Initialize indexer
-    print(f"\n[STEP 2/3] Preparing vector database...")
+    # Step 2: Init Indexer
+    print(f"\n[STEP 2/3] Initializing Vector Database...")
     indexer = VectorDBIndexer()
     
-    # 3. Indexing
-    print(f"\n[STEP 3/3] Vectorizing and indexing chunks...")
-    print("⚠ This process may take time depending on embedding model and chunk count!")
-    
+    # Step 3: Indexing
+    print(f"\n[STEP 3/3] Vectorizing and Indexing...")
     try:
-        # Offer option to user
-        print("\nDo you want to delete existing database and create new one?")
-        print("  [1] Yes - Create new database from scratch (OVERWRITE)")
-        print("  [2] No - Add to existing database (UPDATE)")
-        
-        # Use overwrite=True for demo
-        overwrite = True  # Always create new on first run
-        
-        indexer.index_chunks(chunks, overwrite=overwrite)
-        
-        print("\n✅ All operations completed successfully!")
-        print("RAG system can now use this database to answer questions.")
-        
+        # Default behavior: Overwrite on run to ensure fresh index
+        indexer.index_chunks(chunks, overwrite=True)
+        print("\n✅ Indexing complete! The system is ready for queries.")
     except Exception as e:
-        print(f"\n❌ Indexing error: {e}")
+        print(f"❌ Error during indexing: {e}")
         import traceback
         traceback.print_exc()
-
 
 if __name__ == "__main__":
     main()

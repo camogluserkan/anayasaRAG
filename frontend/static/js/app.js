@@ -9,11 +9,16 @@ const Icons = {
   chip: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8"/></svg>'
 };
 
-// State
+// Application State
 let isWaitingForResponse = false;
 let messageHistory = [];
 
-// Markdown render function
+/**
+ * Render Markdown text to HTML.
+ * Uses 'marked' library if available, otherwise falls back to basic regex replacement.
+ * @param {string} text - Markdown text
+ * @returns {string} HTML string
+ */
 function renderMarkdown(text) {
     if (typeof marked !== 'undefined') {
         return marked.parse(text);
@@ -44,7 +49,7 @@ const systemStatus = document.getElementById('systemStatus');
 const chunkCount = document.getElementById('chunkCount');
 const pdfList = document.getElementById('pdfList');
 
-// Initialize
+// Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
     loadSystemStatus();
     loadPDFList();
@@ -78,27 +83,31 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Load system status
+/**
+ * Check system health status from backend.
+ */
 async function loadSystemStatus() {
     try {
         const response = await fetch('/health');
         const data = await response.json();
         
         if (data.rag_ready) {
-            systemStatus.querySelector('span').textContent = 'RAG Sistemi Hazır';
+            systemStatus.querySelector('span').textContent = 'RAG Sistemi Hazır'; // RAG System Ready
             systemStatus.querySelector('.status-dot').style.background = '#10a37f';
         } else {
-            systemStatus.querySelector('span').textContent = 'Yükleniyor...';
+            systemStatus.querySelector('span').textContent = 'Yükleniyor...'; // Loading...
             systemStatus.querySelector('.status-dot').style.background = '#f59e0b';
             setTimeout(loadSystemStatus, 3000);
         }
     } catch (error) {
-        systemStatus.querySelector('span').textContent = 'Bağlantı Hatası';
+        systemStatus.querySelector('span').textContent = 'Bağlantı Hatası'; // Connection Error
         systemStatus.querySelector('.status-dot').style.background = '#ef4444';
     }
 }
 
-// Load PDF list
+/**
+ * Load list of indexed PDF files.
+ */
 async function loadPDFList() {
     try {
         const response = await fetch('/api/pdfs');
@@ -117,36 +126,38 @@ async function loadPDFList() {
             
             chunkCount.textContent = data.total_chunks || '-';
         } else {
-            pdfList.innerHTML = '<div class="loading-pdfs">PDF bulunamadı</div>';
+            pdfList.innerHTML = '<div class="loading-pdfs">PDF bulunamadı</div>'; // No PDF found
         }
     } catch (error) {
-        console.error('PDF listesi yüklenemedi:', error);
-        pdfList.innerHTML = '<div class="loading-pdfs">Yükleme hatası</div>';
+        console.error('Failed to load PDF list:', error);
+        pdfList.innerHTML = '<div class="loading-pdfs">Yükleme hatası</div>'; // Load error
     }
 }
 
-// Send message
+/**
+ * Handle sending user message.
+ */
 async function sendMessage() {
     const message = messageInput.value.trim();
     
     if (!message || isWaitingForResponse) return;
     
-    // Hide welcome screen
+    // Hide welcome screen if visible
     if (welcomeScreen.style.display !== 'none') {
         welcomeScreen.style.display = 'none';
         messagesContainer.style.display = 'block';
     }
     
-    // Add user message
+    // Add user message to UI
     addMessage(message, 'user');
     messageHistory.push({ role: 'user', content: message });
     
-    // Clear input
+    // Clear and reset input
     messageInput.value = '';
     messageInput.style.height = 'auto';
     charCount.textContent = '0';
     
-    // Disable input
+    // Disable input while waiting
     isWaitingForResponse = true;
     sendButton.disabled = true;
     messageInput.disabled = true;
@@ -155,7 +166,7 @@ async function sendMessage() {
     const typingId = showTypingIndicator();
     
     try {
-        // Use regular endpoint (streaming disabled)
+        // Send request to backend
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -170,17 +181,17 @@ async function sendMessage() {
         // Remove typing indicator
         removeTypingIndicator(typingId);
         
-        // Get response data
+        // Parse response
         const data = await response.json();
         
-        // Add message to chat
+        // Add bot message to UI
         addMessage(
-            data.response || data.answer || 'Cevap bulunamadı',
+            data.response || data.answer || 'Cevap bulunamadı', // No answer found
             'bot',
             data.sources || [],
             data.confidence || null,
             data.has_sources || false,
-            false, // generated
+            false, // generated flag
             data.low_confidence || false,
             data.warning || null
         );
@@ -194,7 +205,7 @@ async function sendMessage() {
     } catch (error) {
         removeTypingIndicator(typingId);
         addMessage(
-            'Bağlantı hatası. Lütfen tekrar deneyin.',
+            'Bağlantı hatası. Lütfen tekrar deneyin.', // Connection error
             'bot',
             [],
             0,
@@ -210,139 +221,18 @@ async function sendMessage() {
     }
 }
 
-// Create streaming message container
-function createStreamingMessage() {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message';
-    
-    // Header
-    const headerDiv = document.createElement('div');
-    headerDiv.className = 'message-header';
-    
-    const avatar = document.createElement('div');
-    avatar.className = 'message-avatar bot-avatar';
-    avatar.innerHTML = Icons.scales;
-    
-    const name = document.createElement('div');
-    name.className = 'message-name';
-    name.textContent = 'Hukuki AI';
-    
-    // Streaming badge
-    const streamBadge = document.createElement('span');
-    streamBadge.className = 'streaming-badge';
-    streamBadge.innerHTML = '<span class="pulse"></span> Yazıyor...';
-    
-    headerDiv.appendChild(avatar);
-    headerDiv.appendChild(name);
-    headerDiv.appendChild(streamBadge);
-    
-    // Content
-    const contentDiv = document.createElement('div');
-    contentDiv.className = 'message-content streaming-content';
-    contentDiv.innerHTML = '<span class="cursor-blink">|</span>';
-    
-    // Metadata container (confidence, sources)
-    const metaDiv = document.createElement('div');
-    metaDiv.className = 'streaming-metadata';
-    metaDiv.style.display = 'none';
-    
-    messageDiv.appendChild(headerDiv);
-    messageDiv.appendChild(metaDiv);
-    messageDiv.appendChild(contentDiv);
-    
-    messagesContainer.appendChild(messageDiv);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    
-    // Store references
-    messageDiv._contentDiv = contentDiv;
-    messageDiv._metaDiv = metaDiv;
-    messageDiv._streamBadge = streamBadge;
-    
-    return messageDiv;
-}
-
-// Update streaming metadata (confidence, sources)
-function updateStreamingMetadata(container, metadata) {
-    const metaDiv = container._metaDiv;
-    metaDiv.style.display = 'block';
-    
-    let html = '';
-    
-    // Confidence badge
-    if (metadata.confidence !== undefined) {
-        const confClass = metadata.confidence >= 70 ? 'high' : metadata.confidence >= 50 ? 'medium' : 'low';
-        html += `<div class="confidence-badge confidence-${confClass}">
-            <span class="confidence-icon">${metadata.confidence >= 70 ? Icons.check : metadata.confidence >= 50 ? Icons.alert : Icons.x}</span>
-            <span class="confidence-text">Güven: ${Math.round(metadata.confidence)}%</span>
-        </div>`;
-        
-        // Low confidence warning
-        if (metadata.low_confidence) {
-            html += `<div class="low-confidence-warning">
-                <span class="confidence-icon">${Icons.alert}</span> Düşük güven skoru. Daha spesifik soru deneyebilirsiniz.
-            </div>`;
-        }
-    }
-    
-    metaDiv.innerHTML = html;
-}
-
-// Update streaming content
-function updateStreamingContent(container, text) {
-    const contentDiv = container._contentDiv;
-    // Render markdown for streaming content
-    contentDiv.innerHTML = renderMarkdown(text) + '<span class="cursor-blink">|</span>';
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-// Finalize streaming message
-function finalizeStreamingMessage(container, text, metadata) {
-    const contentDiv = container._contentDiv;
-    const streamBadge = container._streamBadge;
-    
-    // Final markdown render and remove cursor
-    contentDiv.innerHTML = renderMarkdown(text);
-    streamBadge.remove();
-    
-    // Add sources if available
-    if (metadata && metadata.sources && metadata.sources.length > 0) {
-        const sourcesDiv = document.createElement('div');
-        sourcesDiv.className = 'message-sources';
-        
-        let sourcesHTML = `<div class="sources-header">${Icons.book} Kaynaklar:</div>`;
-        metadata.sources.forEach((source, idx) => {
-            const scorePercent = Math.round((source.score || source.similarity_score || 0) * 100);
-            const scoreClass = scorePercent >= 70 ? 'high' : scorePercent >= 50 ? 'medium' : 'low';
-            const sourceFile = source.source_file || source.source || 'Bilinmeyen';
-            const article = source.article || null;
-            const pageNum = source.page || source.page_number || null;
-            
-            sourcesHTML += `
-                <div class="source-item">
-                    <div class="source-header">
-                        <span class="source-name">📄 ${sourceFile}</span>
-                        ${article ? `<span class="article-badge">${article}</span>` : ''}
-                        ${pageNum ? `<span class="page-badge">Sayfa ${pageNum}</span>` : ''}
-                        <span class="confidence-badge confidence-${scoreClass}">${scorePercent}%</span>
-                    </div>
-                </div>
-            `;
-        });
-        
-        sourcesDiv.innerHTML = sourcesHTML;
-        container.appendChild(sourcesDiv);
-    }
-    
-    // Remove streaming class
-    contentDiv.classList.remove('streaming-content');
-}
-
-// Add message to chat (non-streaming fallback)
+/**
+ * Add a message bubble to the chat interface.
+ * @param {string} content - Message text
+ * @param {string} role - 'user' or 'bot'
+ * @param {Array} sources - List of source objects
+ * @param {number} confidence - Confidence score
+ */
 function addMessage(content, role, sources = [], confidence = null, hasSources = false, generated = false, lowConfidence = false, warning = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message';
     
-    // Header
+    // Create Header
     const headerDiv = document.createElement('div');
     headerDiv.className = 'message-header';
     
@@ -354,35 +244,30 @@ function addMessage(content, role, sources = [], confidence = null, hasSources =
     name.className = 'message-name';
     name.textContent = role === 'user' ? 'Siz' : 'Hukuki AI';
     
-    // Add LLM badge if generated
     if (role === 'bot' && generated) {
         const llmBadge = document.createElement('span');
         llmBadge.className = 'llm-badge';
-        llmBadge.innerHTML = `${Icons.chip} Llama-3.2`;
-        llmBadge.title = 'Llama 3.2-1B-Instruct ile üretildi';
+        llmBadge.innerHTML = `${Icons.chip} Llama-3`;
         name.appendChild(llmBadge);
     }
     
     headerDiv.appendChild(avatar);
     headerDiv.appendChild(name);
     
-    // Content with markdown rendering
+    // Create Content
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     
     if (role === 'bot') {
-        // Render markdown for bot messages
         contentDiv.innerHTML = renderMarkdown(content);
     } else {
-        // Plain text for user messages
         contentDiv.textContent = content;
     }
     
     messageDiv.appendChild(headerDiv);
     messageDiv.appendChild(contentDiv);
     
-    // Add confidence badge and warning for bot messages
-    // confidence is already a percentage (0-100) from backend
+    // Add Metadata (Confidence & Sources) for Bot
     if (role === 'bot' && confidence !== null) {
         const confDiv = document.createElement('div');
         confDiv.className = 'streaming-metadata';
@@ -403,7 +288,6 @@ function addMessage(content, role, sources = [], confidence = null, hasSources =
         messageDiv.appendChild(confDiv);
     }
     
-    // Add sources for bot messages
     if (role === 'bot' && sources && sources.length > 0) {
         const sourcesDiv = document.createElement('div');
         sourcesDiv.className = 'message-sources';
@@ -413,7 +297,6 @@ function addMessage(content, role, sources = [], confidence = null, hasSources =
                 ${Icons.book} ${sources.length} Kaynak Bulundu
             </div>
             ${sources.slice(0, 3).map((source, idx) => {
-                // source.score is already 0-1 range, convert to percentage
                 const scorePercent = Math.round((source.score || source.similarity_score || 0) * 100);
                 const scoreClass = scorePercent >= 70 ? 'high' : scorePercent >= 50 ? 'medium' : 'low';
                 return `
@@ -443,7 +326,10 @@ function addMessage(content, role, sources = [], confidence = null, hasSources =
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// Typing indicator
+/**
+ * Display the typing animation.
+ * @returns {string} ID of the typing element
+ */
 function showTypingIndicator() {
     const typingDiv = document.createElement('div');
     const id = 'typing-' + Date.now();
@@ -471,28 +357,46 @@ function showTypingIndicator() {
     return id;
 }
 
+/**
+ * Remove the typing animation.
+ * @param {string} id - Element ID
+ */
 function removeTypingIndicator(id) {
     const typing = document.getElementById(id);
     if (typing) typing.remove();
 }
 
-// Quick questions list (from sidebar)
+// Quick Questions List (Populated via User Request)
+// These are randomized suggestions for the user.
 const quickQuestions = [
-    'Cumhuriyetin nitelikleri nelerdir?',
-    'İnsan hakları nelerdir?',
-    'Eğitim hakkı nedir?',
-    'Seçme ve seçilme hakkı nedir?',
-    'Düşünce ve kanaat özgürlüğü nedir?',
-    'Basın özgürlüğü nedir?',
-    'Toplantı ve gösteri yürüyüşü hakkı nedir?',
-    'Çalışma hakkı nedir?',
-    'Sosyal güvenlik hakkı nedir?',
-    'Sağlık hakkı nedir?',
-    'Cumhurbaşkanının görevleri nelerdir?',
-    'Yargı bağımsızlığı nedir?'
+    'Türkiye Devletinin yönetim şekli nedir?',
+    'Türkiye Devletinin başkenti neresidir ve milli marşı nedir?',
+    'Yasama yetkisi kime aittir ve bu yetki devredilebilir mi?',
+    'Egemenlik kime aittir?',
+    'Herkesin kanun önünde eşit olması ilkesi ne anlama gelir?',
+    'Milletvekili seçilebilmek için kaç yaşını doldurmuş olmak gerekir?',
+    'Cumhurbaşkanı seçilen bir kişinin görev süresi kaç yıldır?',
+    'Orman köylüsünün korunması nasıl olur?',
+    'Anayasa Mahkemesi kaç üyeden kurulur?',
+    'Yüksek mahkemeler hangileridir?',
+    'Siyasi partiler hangi tür faaliyetlere girişemezler?',
+    'Temel hak ve hürriyetler hangi durumlarda kısmen veya tamamen durdurulabilir?',
+    'Hâkimler ve Savcılar Kurulu kaç üyeden oluşur ve başkanı kimdir?',
+    'Yargıtay Cumhuriyet Başsavcısı kim tarafından ve kaç yıl için seçilir?',
+    'TBMM Genel Kurulu, resmi tatile rastlamadığı takdirde haftanın hangi günleri toplanır?',
+    'Bir milletvekili bir yasama yılı içinde izinsiz veya özürsüz olarak toplam 45 birleşimden fazla yok sayılırsa ne olur?',
+    'TBMMde kapalı oturum yapılmasını kimler isteyebilir?',
+    'Cumhurbaşkanı bütçe kanun teklifini mali yılbaşından ne kadar süre önce Meclise sunmalıdır?',
+    'Cumhurbaşkanlığı kararnameleri ile kanunlar arasında farklı hükümler bulunması halinde hangisi uygulanır?',
+    'Olağanüstü hal (OHAL) ilanı kararını kim verir ve bu kararın süresi en fazla ne kadar olabilir?',
+    'Herkesin özel hayatına ve aile hayatına saygı gösterilmesini isteme hakkı hangi maddede düzenlenmiştir?',
+    'Basın hürriyeti kapsamında basımevi kurmak için izin almak ve mali teminat yatırmak şart mıdır?',
+    'Milletvekilleri göreve başlarken nerede ve nasıl ant içerler?',
+    'Savaş hali ilanına ve Türk Silahlı Kuvvetlerinin yabancı ülkelere gönderilmesine kim izin verir?',
+    'Milli Güvenlik Kurulunun gündemi kim tarafından düzenlenir?'
 ];
 
-// Example questions
+// Example Question Handlers
 function sendExample(button) {
     const text = button.querySelector('.example-text').textContent;
     messageInput.value = text;
@@ -504,16 +408,30 @@ function sendQuickQuestion(question) {
     sendMessage();
 }
 
-// Send random question from quick questions list
+/**
+ * Pick a random question from the list and fill the input.
+ * Does NOT send automatically, allowing user modification.
+ */
 function sendRandomQuestion() {
     if (quickQuestions.length === 0) return;
     const randomIndex = Math.floor(Math.random() * quickQuestions.length);
     const randomQuestion = quickQuestions[randomIndex];
+    
+    // Set input value
     messageInput.value = randomQuestion;
-    sendMessage();
+    
+    // Resize textarea to fit content
+    messageInput.style.height = 'auto';
+    messageInput.style.height = messageInput.scrollHeight + 'px';
+    
+    // Update char count
+    charCount.textContent = messageInput.value.length;
+    
+    // Focus input
+    messageInput.focus();
 }
 
-// New chat
+// UI Helpers
 function newChat() {
     messagesContainer.innerHTML = '';
     messageHistory = [];
@@ -521,20 +439,15 @@ function newChat() {
     messagesContainer.style.display = 'none';
 }
 
-// Sidebar toggle (works for both mobile and desktop)
 function toggleSidebar() {
     const sidebar = document.querySelector('.sidebar');
     const toggleBtn = document.getElementById('sidebarToggle');
     const isMobile = window.innerWidth <= 768;
     
     if (isMobile) {
-        // Mobile: toggle 'active' class (slide in/out)
         sidebar.classList.toggle('active');
     } else {
-        // Desktop: toggle 'hidden' class (hide/show)
         sidebar.classList.toggle('hidden');
-        
-        // Update toggle button position
         if (toggleBtn) {
             if (sidebar.classList.contains('hidden')) {
                 toggleBtn.style.left = '16px';
@@ -544,4 +457,3 @@ function toggleSidebar() {
         }
     }
 }
-
