@@ -1,26 +1,19 @@
-# Core packages - minimal install for speed
-llama-index-core>=0.10.0
-llama-index-llms-llama-cpp>=0.1.0
-llama-index-embeddings-huggingface>=0.2.0
-llama-index-vector-stores-chroma>=0.1.0
+# Core Framework
+flask==3.0.0
+flask-cors==4.0.0
 
-# Essential dependencies
-chromadb>=0.4.22
-sentence-transformers>=2.2.2
-pypdf>=4.0.0
-ollama>=0.6.0
+# Vector Database
+chromadb==0.4.22
 
-# Web framework
-flask>=2.3.0
-flask-cors>=4.0.0
+# RAG & Embeddings
+sentence-transformers==2.5.1
+ollama==0.1.6
+pypdf==4.0.1
 
-# For chunking
-langchain-text-splitters>=0.0.1
+# Utilities
+python-dotenv==1.0.1
+tqdm==4.66.1
+requests==2.31.0
 
-# GGUF Model Support (install separately with CUDA)
-# llama-cpp-python
-
-# Optional: Evaluation (install later if needed)
-# ragas>=0.1.0
-# datasets>=2.16.0
-
+# Evaluation (Optional)
+# ragas==0.1.0
